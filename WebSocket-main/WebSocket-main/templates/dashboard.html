@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart Agriculture IoT Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0e14;
+      --surface: #141820;
+      --surface2: #1c2233;
+      --border: rgba(255,255,255,0.07);
+      --green: #2ed573;
+      --yellow: #ffa502;
+      --red: #ff4757;
+      --blue: #4fc6ff;
+      --text: #e8ecf4;
+      --muted: #7a8099;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+
+    /* Header */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.25rem 2rem; border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .logo { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; }
+    .logo span { color: var(--green); }
+    .ws-status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--muted);
+    }
+    .ws-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--muted); transition: background 0.4s;
+    }
+    .ws-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .ws-dot.error { background: var(--red); }
+
+    /* Layout */
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+
+    /* Health Status Banner */
+    .status-banner {
+      border-radius: 14px; padding: 1.5rem 2rem;
+      display: flex; align-items: center; gap: 1.5rem;
+      margin-bottom: 2rem; border: 1px solid var(--border);
+      background: var(--surface); transition: border-color 0.4s;
+    }
+    .status-icon { font-size: 48px; }
+    .status-label { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 700; }
+    .status-rec { font-size: 14px; color: var(--muted); margin-top: 4px; max-width: 600px; line-height: 1.6; }
+
+    /* Alert */
+    .alert-box {
+      background: rgba(255,71,87,0.1); border: 1px solid rgba(255,71,87,0.3);
+      border-radius: 10px; padding: 0.75rem 1.25rem;
+      font-size: 14px; color: #ff6b7a; margin-bottom: 2rem;
+      display: none;
+    }
+    .alert-box.visible { display: block; }
+
+    /* Sensor Cards */
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.5rem;
+    }
+    .card-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.75rem; }
+    .card-value { font-family: 'Syne', sans-serif; font-size: 38px; font-weight: 700; }
+    .card-unit { font-size: 16px; color: var(--muted); font-weight: 400; }
+    .card-bar { height: 4px; border-radius: 99px; background: var(--surface2); margin-top: 1rem; overflow: hidden; }
+    .card-bar-fill { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
+
+    /* Chart */
+    .chart-section { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; margin-bottom: 2rem; }
+    .chart-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 600; margin-bottom: 1rem; }
+    canvas { width: 100% !important; }
+
+    /* Log */
+    .log-section { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem; }
+    .log-title { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 600; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .log-clear { font-size: 12px; color: var(--muted); cursor: pointer; background: none; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; color: var(--muted); }
+    .log-clear:hover { color: var(--text); }
+    #log-list { max-height: 220px; overflow-y: auto; font-size: 13px; font-family: 'Courier New', monospace; }
+    .log-entry { padding: 6px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; }
+    .log-time { color: var(--muted); white-space: nowrap; }
+    .log-msg { color: var(--text); }
+    .log-healthy { color: var(--green); }
+    .log-warning { color: var(--yellow); }
+    .log-critical { color: var(--red); }
+
+    @media (max-width: 700px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🌾 Smart<span>Agri</span> IoT Dashboard</div>
+  <div class="ws-status">
+    <div class="ws-dot" id="ws-dot"></div>
+    <span id="ws-label">Disconnected</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Status Banner -->
+  <div class="status-banner" id="status-banner">
+    <div class="status-icon" id="status-icon">🌿</div>
+    <div>
+      <div class="status-label" id="status-label" style="color: var(--green)">Waiting for data...</div>
+      <div class="status-rec" id="status-rec">Connect the sensor simulator to start receiving live data.</div>
+    </div>
+  </div>
+
+  <!-- Alert Box -->
+  <div class="alert-box" id="alert-box">⚠️ <span id="alert-text"></span></div>
+
+  <!-- Sensor Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">🌡️ Temperature</div>
+      <div class="card-value" id="temp-val">--<span class="card-unit">°C</span></div>
+      <div class="card-bar"><div class="card-bar-fill" id="temp-bar" style="width:0%;background:var(--blue)"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">💧 Humidity</div>
+      <div class="card-value" id="hum-val">--<span class="card-unit">%</span></div>
+      <div class="card-bar"><div class="card-bar-fill" id="hum-bar" style="width:0%;background:var(--blue)"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">🌱 Crop Health Index</div>
+      <div class="card-value" id="crop-val">--<span class="card-unit">/100</span></div>
+      <div class="card-bar"><div class="card-bar-fill" id="crop-bar" style="width:0%;background:var(--green)"></div></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-section">
+    <div class="chart-title">📈 Live Sensor Readings</div>
+    <canvas id="sensorChart" height="100"></canvas>
+  </div>
+
+  <!-- Log -->
+  <div class="log-section">
+    <div class="log-title">
+      📋 Event Log
+      <button class="log-clear" onclick="clearLog()">Clear</button>
+    </div>
+    <div id="log-list">
+      <div class="log-entry"><span class="log-time">--:--:--</span><span class="log-msg" style="color:var(--muted)">Waiting for WebSocket connection...</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // ─── WebSocket Connection (Part A & B) ───────────────────────────────────
+  const WS_URL = "ws://localhost:8765";
+  let ws, chart;
+  const labels = [], tempData = [], humData = [], cropData = [];
+
+  function connect() {
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      document.getElementById('ws-dot').className = 'ws-dot connected';
+      document.getElementById('ws-label').textContent = 'Connected';
+      addLog('WebSocket connection established to server.', 'healthy');
+    };
+
+    // Part B Step 5: Receive real-time data and update dashboard
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      updateDashboard(data);
+    };
+
+    ws.onclose = () => {
+      document.getElementById('ws-dot').className = 'ws-dot';
+      document.getElementById('ws-label').textContent = 'Disconnected — retrying...';
+      addLog('Connection lost. Reconnecting in 3s...', '');
+      setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => {
+      document.getElementById('ws-dot').className = 'ws-dot error';
+      document.getElementById('ws-label').textContent = 'Connection Error';
+    };
+  }
+
+  // ─── Update Dashboard with new data ─────────────────────────────────────
+  function updateDashboard(data) {
+    const { temperature, humidity, crop_health_index, health_status, health_color, alert, recommendation, timestamp } = data;
+
+    // Update cards
+    document.getElementById('temp-val').innerHTML = `${temperature}<span class="card-unit">°C</span>`;
+    document.getElementById('hum-val').innerHTML = `${humidity}<span class="card-unit">%</span>`;
+    document.getElementById('crop-val').innerHTML = `${crop_health_index}<span class="card-unit">/100</span>`;
+
+    // Update progress bars
+    document.getElementById('temp-bar').style.width = `${Math.min((temperature / 50) * 100, 100)}%`;
+    document.getElementById('hum-bar').style.width = `${humidity}%`;
+    document.getElementById('crop-bar').style.width = `${crop_health_index}%`;
+    document.getElementById('crop-bar').style.background = health_color;
+
+    // Update status banner (Part C: model prediction display)
+    const icons = { Healthy: '🌿', Warning: '⚠️', Critical: '🚨' };
+    document.getElementById('status-icon').textContent = icons[health_status] || '🌿';
+    document.getElementById('status-label').textContent = health_status;
+    document.getElementById('status-label').style.color = health_color;
+    document.getElementById('status-rec').textContent = recommendation;
+    document.getElementById('status-banner').style.borderColor = health_color + '55';
+
+    // Alert box (Part C Step 3)
+    const alertBox = document.getElementById('alert-box');
+    if (alert) {
+      alertBox.classList.add('visible');
+      document.getElementById('alert-text').textContent = alert;
+    } else {
+      alertBox.classList.remove('visible');
+    }
+
+    // Update chart
+    const time = new Date(timestamp).toLocaleTimeString();
+    labels.push(time);
+    tempData.push(temperature);
+    humData.push(humidity);
+    cropData.push(crop_health_index);
+    if (labels.length > 15) { labels.shift(); tempData.shift(); humData.shift(); cropData.shift(); }
+    chart.update();
+
+    // Log entry
+    const statusClass = health_status === 'Healthy' ? 'log-healthy' : health_status === 'Warning' ? 'log-warning' : 'log-critical';
+    addLog(`[${health_status}] Temp:${temperature}°C | Humidity:${humidity}% | Crop:${crop_health_index}`, statusClass);
+  }
+
+  function addLog(msg, cls) {
+    const logList = document.getElementById('log-list');
+    const now = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${cls}">${msg}</span>`;
+    logList.prepend(entry);
+    if (logList.children.length > 50) logList.removeChild(logList.lastChild);
+  }
+
+  function clearLog() {
+    document.getElementById('log-list').innerHTML = '';
+  }
+
+  // ─── Initialize Chart ────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    const ctx = document.getElementById('sensorChart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Temperature (°C)', data: tempData, borderColor: '#4fc6ff', backgroundColor: 'rgba(79,198,255,0.08)', tension: 0.4, fill: true },
+          { label: 'Humidity (%)', data: humData, borderColor: '#a29bfe', backgroundColor: 'rgba(162,155,254,0.08)', tension: 0.4, fill: true },
+          { label: 'Crop Health Index', data: cropData, borderColor: '#2ed573', backgroundColor: 'rgba(46,213,115,0.08)', tension: 0.4, fill: true },
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: { duration: 300 },
+        plugins: { legend: { labels: { color: '#7a8099', font: { size: 12 } } } },
+        scales: {
+          x: { ticks: { color: '#7a8099' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+          y: { ticks: { color: '#7a8099' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        }
+      }
+    });
+
+    connect(); // Start WebSocket
+  });
+</script>
+</body>
+</html>
